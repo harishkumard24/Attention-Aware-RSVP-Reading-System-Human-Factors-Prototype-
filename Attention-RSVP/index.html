@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FocusRSVP — Attention-Aware Speed Reader</title>
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- PDF.js for PDF text extraction -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- MediaPipe FaceMesh for attention detection (versions PINNED — unpinned builds have broken asset paths) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+  <!-- ======================= TOP BAR ======================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">FocusRSVP</span>
+      <span class="brand-sub">attention-aware reader</span>
+    </div>
+
+    <div class="topbar-right">
+      <!-- Attention status pill -->
+      <div id="attentionPill" class="pill pill-off" title="Webcam attention state">
+        <span class="pill-dot"></span>
+        <span id="attentionLabel">Camera off</span>
+      </div>
+
+      <button id="cameraToggleBtn" class="icon-btn" title="Toggle attention tracking (C)">
+        <svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+      </button>
+      <button id="statsBtn" class="icon-btn" title="Session stats (M)">
+        <svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z"/></svg>
+      </button>
+      <button id="settingsBtn" class="icon-btn" title="Settings (S)">
+        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.61 3.61 0 0 1 8.4 12c0-1.98 1.62-3.6 3.6-3.6s3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+      </button>
+      <button id="textBtn" class="btn btn-outline">Load text</button>
+    </div>
+  </header>
+
+  <!-- ======================= MAIN RSVP DISPLAY ======================= -->
+  <main class="stage">
+    <div class="rsvp-frame">
+      <div class="guide guide-top"><span class="tick"></span></div>
+      <div id="wordDisplay" class="word-display">
+        <span class="w-pre"></span><span class="w-orp"></span><span class="w-post"></span>
+      </div>
+      <div class="guide guide-bottom"><span class="tick"></span></div>
+    </div>
+
+    <p id="stageHint" class="stage-hint">Load a text to begin · Space to play/pause · ←/→ to step</p>
+
+    <!-- Auto-pause overlay -->
+    <div id="pauseOverlay" class="pause-overlay hidden">
+      <div class="pause-card">
+        <div class="pause-eye">⏸</div>
+        <h2 id="pauseTitle">Paused — attention lost</h2>
+        <p id="pauseSub">Look back at the screen, then resume when you're ready.</p>
+        <button id="resumeBtn" class="btn btn-primary">Resume reading</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ======================= BOTTOM CONTROLS ======================= -->
+  <footer class="controls">
+    <div class="progress-row">
+      <input id="progressBar" class="progress" type="range" min="0" max="100" value="0" step="1" />
+    </div>
+
+    <div class="controls-row">
+      <div class="ctrl-group">
+        <button id="restartBtn" class="icon-btn" title="Restart (R)">
+          <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+        </button>
+        <button id="backBtn" class="icon-btn" title="Back 10 words (←)">
+          <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6L11 18zm.5-6 8.5 6V6l-8.5 6z"/></svg>
+        </button>
+        <button id="playBtn" class="play-btn" title="Play / pause (Space)">
+          <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pauseIcon" viewBox="0 0 24 24" class="hidden"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button id="fwdBtn" class="icon-btn" title="Forward 10 words (→)">
+          <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6L11 18zm.5-6 8.5 6V6l-8.5 6z" transform="scale(-1,1) translate(-24,0)"/></svg>
+        </button>
+      </div>
+
+      <div class="ctrl-group wpm-group">
+        <button id="wpmDown" class="icon-btn" title="Slower (-25 WPM)">−</button>
+        <div class="wpm-readout"><span id="wpmValue">300</span><span class="wpm-unit">WPM</span></div>
+        <button id="wpmUp" class="icon-btn" title="Faster (+25 WPM)">+</button>
+      </div>
+
+      <div class="ctrl-group meta-group">
+        <span id="wordCounter" class="meta">0 / 0</span>
+        <span class="meta-sep">·</span>
+        <span id="timeRemaining" class="meta">0:00 left</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ======================= WEBCAM PREVIEW ======================= -->
+  <div id="camDock" class="cam-dock hidden">
+    <video id="webcamVideo" autoplay muted playsinline></video>
+    <canvas id="camOverlay"></canvas>
+    <span id="camBadge" class="cam-badge">searching…</span>
+  </div>
+
+  <!-- ======================= TEXT INPUT MODAL ======================= -->
+  <div id="textModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Load text</h2>
+        <button class="icon-btn modal-close" data-close="textModal">✕</button>
+      </div>
+      <textarea id="textArea" placeholder="Paste your text here…"></textarea>
+      <div class="modal-actions">
+        <label class="btn btn-outline file-label">
+          Upload .txt / .pdf
+          <input id="fileInput" type="file" accept=".txt,.pdf" hidden />
+        </label>
+        <button id="sampleBtn" class="btn btn-outline">Sample passage</button>
+        <span class="spacer"></span>
+        <span id="fileStatus" class="meta"></span>
+        <button id="loadTextBtn" class="btn btn-primary">Start reading</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= SETTINGS MODAL ======================= -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Settings</h2>
+        <button class="icon-btn modal-close" data-close="settingsModal">✕</button>
+      </div>
+
+      <div class="setting-row">
+        <label for="setWpm">Reading speed</label>
+        <div class="setting-ctl"><input id="setWpm" type="range" min="100" max="800" step="25" value="300" /><span id="setWpmVal">300 WPM</span></div>
+      </div>
+      <div class="setting-row">
+        <label for="setFontSize">Word size</label>
+        <div class="setting-ctl"><input id="setFontSize" type="range" min="32" max="96" step="4" value="64" /><span id="setFontSizeVal">64 px</span></div>
+      </div>
+      <div class="setting-row">
+        <label for="setPunctPause">Pause on punctuation</label>
+        <input id="setPunctPause" type="checkbox" checked />
+      </div>
+
+      <h3 class="setting-section">Attention tracking</h3>
+      <div class="setting-row">
+        <label for="setAutoPause">Auto-pause when attention is lost</label>
+        <input id="setAutoPause" type="checkbox" checked />
+      </div>
+      <div class="setting-row">
+        <label for="setGraceMs">Attention loss tolerance</label>
+        <div class="setting-ctl"><input id="setGraceMs" type="range" min="500" max="4000" step="250" value="2000" /><span id="setGraceVal">2.0 s</span></div>
+      </div>
+      <div class="setting-row">
+        <label for="setAutoResume">Auto-resume when attention returns</label>
+        <input id="setAutoResume" type="checkbox" />
+      </div>
+      <div class="setting-row">
+        <label for="setShowCam">Show webcam preview</label>
+        <input id="setShowCam" type="checkbox" checked />
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= STATS MODAL ======================= -->
+  <div id="statsModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Session stats</h2>
+        <button class="icon-btn modal-close" data-close="statsModal">✕</button>
+      </div>
+      <div id="statsGrid" class="stats-grid"><!-- filled by JS --></div>
+      <div class="modal-actions">
+        <button id="exportBtn" class="btn btn-outline">Export session JSON</button>
+        <span class="spacer"></span>
+        <button id="resetStatsBtn" class="btn btn-outline">Reset session</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App modules (load order matters) -->
+  <script src="js/rsvp-engine.js"></script>
+  <script src="js/session-logger.js"></script>
+  <script src="js/attention-monitor.js"></script>
+  <script src="js/distraction-controller.js"></script>
+  <script src="js/file-input.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
