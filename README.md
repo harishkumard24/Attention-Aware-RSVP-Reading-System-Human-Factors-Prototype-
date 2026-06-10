@@ -14,7 +14,7 @@ reading when gaze is lost and logs every distraction event for analysis.
 ## File structure
 
 ```
-attention-rsvp/
+Attention-Aware RSVP Reading System — Human Factors Prototype/
 ├── index.html                  # Single page: display, controls, modals
 ├── css/
 │   └── style.css               # Dark minimal RSVP theme
